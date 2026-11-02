@@ -89,8 +89,7 @@ HTML node to examine the current context to be correctly translated.
   tables (`<table>`, `<thead>`, `<tbody>`, `<tr>`), can only be translated as
   CommonMark/GFM when they appear in a block context. Headings, paragraphs, and
   table cells (`<td>`/`<th>`) begin an inline context.
-* Inlines, consisting of emphasis (`<em>`) and strong emphasis (`<strong>`),
-  links (`<a>`), autolinks (`<a>`), and raw HTML, begin an inline context.
+* Inlines, consisting of emphasis (`<em>`), strong emphasis (`<strong>`), strikethrough (`<del>`), links (`<a>`), autolinks (`<a>`), and raw HTML, begin an inline context.
 * Inlines with no content (`<img>`, `<br>`) aren't affected by context.
 * Both code blocks and code spans (`<pre>`, `<code>`) create a literal context.
   Code blocks must occur in a block context to be translated to CommonMark. Any
@@ -539,33 +538,34 @@ preceding and following emphasis. It is kept for possible future improvements.
 
 Strikethrough is a
 [GFM extension](https://github.github.com/gfm/#strikethrough-extension-).
-This design uses
-[pulldown-cmark's strikethrough rules](https://pulldown-cmark.github.io/pulldown-cmark/specs/strikethrough.html)
-as the normative parsing behavior. Translate an attribute-free `<del>`
-element to `~~content~~` when the conditions below allow it. The Markdown
-reader must enable pulldown-cmark's `ENABLE_STRIKETHROUGH` option.
+This design targets pulldown-cmark 0.13.4 with `ENABLE_STRIKETHROUGH` enabled.
+See its
+[strikethrough specification](https://pulldown-cmark.github.io/pulldown-cmark/specs/strikethrough.html)
+for the general syntax; version-specific delimiter behavior follows the
+[target parser source](https://github.com/pulldown-cmark/pulldown-cmark/blob/v0.13.4/pulldown-cmark/src/firstpass.rs).
+Translate an attribute-free `<del>` to `~~content~~` when the conditions below
+allow it.
 
-Always use two tildes rather than one. Pulldown-cmark permits double-tilde
-strikethrough inside words and ignores punctuation when determining whether
-double tildes can open or close strikethrough. Single tildes have different
-restrictions. Therefore, the conservative punctuation fallback described for
-emphasis is not needed here.
+Always use two tildes rather than one. In the target parser,
+`delim_run_can_close` rejects the closing run in `a~~!~~b`: its preceding
+character is punctuation and its following character is a letter. This
+conclusion comes from source inspection, not an executed parser test.
+Faithful mode therefore conservatively serializes a `<del>` whose translated
+content ends in Unicode punctuation. Mixed emphasis and strikethrough use
+Markdown when these checks and the emphasis rules permit it.
 
 The examples below show fragments. Any surrounding paragraph, heading,
-list item, or table cell follows its own translation rules. HTML fallbacks
-remain subject to the limitations described in the shared HTML translation
-section.
+list item, or table cell follows its own translation rules. HTML fallbacks remain subject to the limitations described in the shared HTML translation section.
 
 | Description | HTML in | Faithful expected |
 | ----------- | ------- | ----------------- |
 | Ordinary strikethrough | `<del>old text</del>` | `~~old text~~` |
 | Inside a word | `a<del>b</del>c` | `a~~b~~c` |
-| Punctuation-only content | `a<del>!</del>b` | `a~~!~~b` |
-| Emphasis inside strikethrough | `<del><em>old</em></del>` | `~~*old*~~` |
-| Link inside strikethrough | `<del><a href="u">old</a></del>` | `~~[old](u)~~` |
-| Literal tilde | `<del>a~b</del>` | `~~a\~b~~` |
+| Punctuation-only content | `a<del>!</del>b` | `a<del>!</del>b` |
+| Emphasis inside strikethrough | `<del><em>old</em></del>` | `<del>*old*</del>` |
+| Link inside strikethrough | `<del><a href="u">old</a></del>` | `<del>[old](u)</del>` |
 | Internal line break | `<del>a<br>b</del>` | `~~a<br>b~~` |
-| Line break alone | `<del><br></del>` | `~~<br>~~` |
+| Line break alone | `<del><br></del>` | `<del><br></del>` |
 | Empty content | `a<del></del>b` | `a<del></del>b` |
 | Whitespace-only content | `a<del>␣</del>b` | `a<del>␣</del>b` |
 | Leading or trailing whitespace | `a<del>␣b␣</del>c` | `a<del>␣b␣</del>c` |
@@ -575,20 +575,29 @@ section.
 | Different HTML tag | `<s>a</s>` | `<s>a</s>` |
 | Strikethrough nested through emphasis | `<del><em><del>a</del></em></del>` | `<del><em>~~a~~</em></del>` |
 | Block content | `<del><p>a</p><p>b</p></del>` | `<del><p>a</p><p>b</p></del>` |
+| Emphasis within strikethrough | `<del>strike <em>bang</em> through</del>` | `~~strike *bang* through~~` |
+| Strikethrough within emphasis | `<em>bang <del>strike</del> boom</em>` | `*bang ~~strike~~ boom*` |
+| Block content through another element | `<del><span><p>a</p></span></del>` | `<del><span><p>a</p></span></del>` |
+| Strikethrough at emphasis boundaries | `<em><del>a</del></em>` | `<em>~~a~~</em>` |
+| Strikethrough at strong-emphasis boundaries | `<strong><del>a</del></strong>` | `<strong>~~a~~</strong>` |
+| Literal tilde | `<del>a~b</del>` | `~~a\~b~~` |
+
+Mixed emphasis and strikethrough use Markdown when the emphasis delimiter rules permit it, as the examples above show. This differs from nesting one `<del>` inside another, including through an intervening `<em>`: those cases contain two strikethrough elements. The HTML fallback preserves that nesting rather than combining the two elements into one. When translated strikethrough reaches an emphasis boundary, the shared emphasis punctuation fallback still applies: the generated `~` is punctuation, so the enclosing `<em>` or `<strong>` is preserved as HTML.
 
 Approach:
 
-1. Before translating a `<del>` element, check whether it contains block-level
-   content, directly or through other elements. If it does, do not surround
-   its content with `~~`. In Faithful mode, serialize the element and its
-   block content as HTML, following the document's existing HTML serialization
-   and context rules. In Pure mode, omit the outer strikethrough markers and
-   translate its children in the incoming context.
+1. If a `<del>` has a descendant classified by the shared context rules as a
+   container block, leaf block, or thematic break (`<hr>`), do not surround
+   its content with `~~`.
 
-   Otherwise, treat strikethrough as an inline element and translate its
-   children in an inline context. Follow the existing rules for newlines,
-   raw HTML, links, code spans, math, and table-cell escaping. Literal contexts
-   remain governed by the code-block and code-span rules.
+   In Faithful mode, use the shared HTML serializer. The `<del>` is emitted
+   as a raw HTML inline, and its children are processed in an inline context.
+
+   In Pure mode, omit the outer strikethrough markers and translate its
+   children in the incoming context. This is an explicit exception to the
+   shared rule that strikethrough begins an inline context. 
+
+   If there is no such block descendant, translate its children in an inline context using the shared translation rules. Literal contexts retain their existing handling.
 
 2. In Faithful mode, preserve `<s>` and `<strike>` as raw HTML rather than
    changing them to `<del>`. Although these elements may look similar,
@@ -606,15 +615,9 @@ Approach:
    still follow their normal translation rules. This avoids nested or merged
    tilde delimiters while preserving the elements.
 
-5. If the translated content is empty, or begins or ends with Unicode
-   whitespace, serialize the element as HTML in Faithful mode. Empty
-   delimiters cannot represent an empty `<del>`, and whitespace next to
-   delimiters can prevent them from opening or closing. This conservative
-   choice preserves the whitespace inside the element instead of moving it
-   outside.
+5. In Faithful mode, serialize the element as HTML if its translated   content is empty, begins or ends with Unicode whitespace, or ends with Unicode punctuation. These checks prevent empty or invalid delimiters and preserve edge whitespace inside the element. Serialization uses the shared HTML machinery; children still follow their normal inline translation rules.
 
-6. Otherwise, surround the translated content with `~~`. Do not add spaces
-   between the delimiters and their content.
+6. Otherwise, surround the translated content with `~~`. Do not add spaces between the delimiters and their content.
 
 Literal tildes in ordinary text nodes must be escaped as `\~`, both inside
 and outside strikethrough. This prevents source text from creating unintended
@@ -632,6 +635,13 @@ the delimiters, as with emphasis. When nested strikethrough requires an HTML
 fallback in Faithful mode, Pure mode omits the outer element's delimiters
 and retains its translated children. These choices are lossy but avoid
 emitting raw HTML.
+
+In Pure mode, after separating leading and trailing whitespace, if the
+remaining translated content ends in Unicode punctuation, omit the outer
+strikethrough delimiters and retain the translated content and its edge
+whitespace. This takes precedence over wrapping the content in `~~`.
+For example, `a<del>!</del>b` becomes `a!b`, intentionally losing
+strikethrough formatting.
 
 ### Links
 
