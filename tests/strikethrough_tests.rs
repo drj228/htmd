@@ -49,6 +49,16 @@ fn pure_mode_handles_lossy_cases() {
         ("a<del> ! </del>b", "a ! b"),
         ("<del><del>a</del></del>", "~~a~~"),
         ("<del>a</del><del>b</del>", "~~ab~~"),
+        ("<del>a</del><s>b</s>", "~~ab~~"),
+        ("<s>a</s><strike>b</strike>", "~~ab~~"),
+        ("<del><em>a</em></del><del>b</del>", "*a*~~b~~"),
+        (r#"<del cite="u">a</del><del>b</del>"#, "~~ab~~"),
+        ("<del>a</del><!--x--><del>b</del>", "~~ab~~"),
+        ("<del>a</del><span><del>b</del></span>", "~~ab~~"),
+        ("<span><del>a</del></span><strike>b</strike>", "~~ab~~"),
+        ("<del>a</del><span></span><strike>b</strike>", "~~ab~~"),
+        ("<del>a</del><s>b</s><strike>c</strike>", "~~abc~~"),
+        ("<del>a</del> <s>b</s>", "~~a~~ ~~b~~"),
         ("<del><p>a</p><p>b</p></del>", "a\n\nb"),
         ("<del><span><p>a</p></span></del>", "a"),
         (r#"<del>a!</del><a href="u">x</a>"#, r"a\![x](u)"),
@@ -104,6 +114,8 @@ fn faithful_preserves_unicode_edges_and_complex_adjacency() {
         "a<del>b\u{a0}</del>c",
         "a<del>b—</del>c",
         "a<del>b★</del>c",
+        "<del>a<s>b</s></del>",
+        "<del>x<iframe></iframe>y</del>",
         "<del><em>a</em></del><del>b</del>",
         "<del>a</del><del><em>b</em></del>",
     ] {
@@ -118,6 +130,7 @@ fn supported_markdown_round_trips_with_strikethrough_enabled() {
     let options = ParserOptions::ENABLE_STRIKETHROUGH | ParserOptions::ENABLE_TABLES;
     let examples = [
         ("<p>a<del>b</del>c</p>", "<p>a<del>b</del>c</p>\n"),
+        ("<p>a<del>!b</del></p>", "<p>a<del>!b</del></p>\n"),
         ("<p><del>strike <em>bang</em> through</del></p>",
          "<p><del>strike <em>bang</em> through</del></p>\n"),
         ("<h2><del>old</del></h2>", "<h2><del>old</del></h2>\n"),
@@ -131,6 +144,30 @@ fn supported_markdown_round_trips_with_strikethrough_enabled() {
     let markdown = convert_faithful("<table><tr><th><del>old</del></th></tr><tr><td>new</td></tr></table>").unwrap();
     assert!(markdown.contains("~~old~~"));
     assert!(render_markdown(&markdown, options).contains("<th><del>old</del></th>"));
+}
+
+#[test]
+fn pure_adjacent_strikethrough_has_no_visible_delimiters() {
+    for html in [
+        "<del>a</del><s>b</s>",
+        r#"<del cite="u">a</del><del>b</del>"#,
+        "<del>a</del><!--x--><del>b</del>",
+        "<del>a</del><span><del>b</del></span>",
+        "<span><del>a</del></span><strike>b</strike>",
+    ] {
+        let markdown = convert_pure(html).unwrap();
+        assert_eq!(
+            "<p><del>ab</del></p>\n",
+            render_markdown(&markdown, ParserOptions::ENABLE_STRIKETHROUGH),
+            "{html}: {markdown}"
+        );
+    }
+    let markdown = convert_pure("<del><em>a</em></del><del>b</del>").unwrap();
+    assert_eq!(
+        "<p><em>a</em><del>b</del></p>\n",
+        render_markdown(&markdown, ParserOptions::ENABLE_STRIKETHROUGH)
+    );
+    assert_eq!("x\n\ny", convert_pure("<del>x<iframe></iframe>y</del>").unwrap());
 }
 
 #[test]

@@ -549,8 +549,9 @@ allow it.
 Always use two tildes rather than one. In the target parser,
 `delim_run_can_close` rejects the closing run in `a~~!~~b`: its preceding
 character is punctuation and its following character is a letter. This
-conclusion comes from source inspection, not an executed parser test.
-Faithful mode therefore conservatively serializes a `<del>` whose translated
+behavior is also covered by the executed `parser_punctuation_regression` test
+against the locked parser version. Faithful mode therefore conservatively
+serializes a `<del>` whose translated
 content ends in Unicode punctuation. Mixed emphasis and strikethrough use
 Markdown when these checks and the emphasis rules permit it.
 
@@ -586,9 +587,10 @@ Mixed emphasis and strikethrough use Markdown when the emphasis delimiter rules 
 
 Approach:
 
-1. If a `<del>` has a descendant classified by the shared context rules as a
-   container block, leaf block, or thematic break (`<hr>`), do not surround
-   its content with `~~`.
+1. If a `<del>` has a descendant whose tag is in the CommonMark HTML block
+   type 1 or type 6 list, do not surround its content with `~~`. Use the shared
+   `is_block_element` classification, including tags such as `<div>` and
+   `<iframe>` as well as paragraphs, headings, lists, and tables.
 
    In Faithful mode, use the shared HTML serializer. The `<del>` is emitted
    as a raw HTML inline, and its children are processed in an inline context.
@@ -628,7 +630,10 @@ escape the generated delimiters too. Code, math, autolink destinations, and HTML
 
 In Pure mode, `<s>` and `<strike>` may be normalized to the same Markdown
 representation as `<del>`, and attributes are discarded. Adjacent elements
-follow the existing Pure-mode combining rule. For empty or whitespace-only
+follow the existing Pure-mode combining rule. If separately translated
+strikethrough spans touch in the emitted output, merge their closing and
+opening `~~` into a single span. This also applies across normalized aliases,
+transparent wrappers, and omitted comments. For empty or whitespace-only
 content, omit the delimiters and retain the translated content. For other
 content with leading or trailing whitespace, move that whitespace outside
 the delimiters, as with emphasis. When nested strikethrough requires an HTML

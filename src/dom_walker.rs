@@ -136,7 +136,7 @@ fn walk_element(
         if !context.literal {
             trim_newlines(&mut content);
         }
-        append_normalized_content(output, content, context.literal);
+        append_element_content(output, content, handlers, context);
         return markdown_translated;
     }
 
@@ -146,7 +146,7 @@ fn walk_element(
         let mut content = String::new();
         let is_block = is_block_element(tag);
         let markdown_translated = walk_children(node, &mut content, handlers, is_block, context);
-        append_normalized_content(output, content, context.literal);
+        append_element_content(output, content, handlers, context);
         return markdown_translated;
     }
 
@@ -154,7 +154,7 @@ fn walk_element(
         return true;
     };
     if !result.content.is_empty() || tag != "head" {
-        append_normalized_content(output, result.content, context.literal);
+        append_element_content(output, result.content, handlers, context);
     }
     result.markdown_translated
 }
@@ -364,6 +364,27 @@ fn combine_nodes(parent: &Rc<Node>, nodes: &[Rc<Node>]) -> Rc<Node> {
         text.push_tendril(&contents.borrow());
     }
     copy_element_holding_text(&nodes[0], Some(parent), text)
+}
+
+// Pure-mode wrappers and dropped comments can make separately translated
+// strikethrough spans touch. Merge their boundary markers before joining.
+fn append_element_content(
+    output: &mut String,
+    mut content: String,
+    handlers: &ElementHandlers,
+    context: Context,
+) {
+    if handlers.options.translation_mode == TranslationMode::Pure
+        && !context.literal
+        && output.ends_with("~~")
+        && !output.ends_with("~~~")
+        && content.starts_with("~~")
+        && !content.starts_with("~~~")
+    {
+        output.truncate(output.len() - 2);
+        content.drain(..2);
+    }
+    append_normalized_content(output, content, context.literal);
 }
 
 /// Normalizes content before adding to output by:
