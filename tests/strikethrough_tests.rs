@@ -67,13 +67,34 @@ fn literal_tildes_are_escaped_without_changing_literal_contexts() {
         ("<del>a~</del>", r"<del>a\~</del>"),
         ("<code>~a~</code>", "`~a~`"),
         (r#"<span class="math math-inline">~a~</span>"#, "$~a~$"),
-        (r#"<a href="https://x/~u">https://x/~u</a>"#, "<https://x/~u>"),
+        (
+            r#"<a href="https://x/~u">https://x/~u</a>"#,
+            r"[https://x/\~u](https://x/~u)",
+        ),
         (r#"<del cite="~u">a</del>"#, r#"<del cite="~u">a</del>"#),
         (r#"<img src="u" alt="~a~">"#, r"![\~a\~](u)"),
     ];
     for (html, expected) in examples {
         assert_eq!(expected, convert_faithful(html).unwrap(), "{html}");
     }
+}
+
+#[test]
+fn autolink_destinations_keep_literal_tildes() {
+    let options = htmd::options::Options {
+        link_style: htmd::options::LinkStyle::InlinedPreferAutolinks,
+        ..Default::default()
+    };
+    let markdown = common::convert_faithful_options(
+        r#"<a href="https://x/~u">https://x/~u</a>"#,
+        options,
+    )
+    .unwrap();
+    assert_eq!("<https://x/~u>", markdown);
+    assert_eq!(
+        "<p><a href=\"https://x/~u\">https://x/~u</a></p>\n",
+        render_markdown(&markdown, ParserOptions::ENABLE_STRIKETHROUGH)
+    );
 }
 
 #[test]
